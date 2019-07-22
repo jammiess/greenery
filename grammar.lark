@@ -1,0 +1,72 @@
+start: (declaration|_NEWLINE)*
+
+declaration: "value" NAME "(" parameters ")" "->" type ":" _NEWLINE _INDENT value_body _DEDENT -> value_definition
+           | "generated" NAME "->" type ":" _NEWLINE _INDENT value_body _DEDENT -> generated_definition
+           | "constant" NAME ":" type "=" value -> typed_constant
+           | "constant" NAME ":" "=" value -> untyped_constant
+           | "action" NAME "(" parameters ")" ":" _NEWLINE _INDENT action_body _DEDENT -> action_definition
+
+parameters: [parameter ("," parameter)*]
+parameter: NAME ":" type
+?type: value_argument_type
+
+?value_argument_type: type_argument_type ["<" value_type_arguments ">"]
+?type_argument_type: named_type ["[" type_arguments "]"]
+named_type: NAME
+
+value_type_arguments: atom ("," atom)*
+type_arguments: type ("," type)*
+
+value_body: (value_statement _NEWLINE)* return_statement _NEWLINE
+
+value_statement: NAME ":" type "=" expr -> typed_assignment
+               | NAME ":" "=" expr -> untyped_assignment
+
+return_statement: "return" expr
+
+arguments: [expr ("," expr)* [","]]
+
+?expr: expr_test
+?expr_test: expr_or ["if" expr_or "else" expr]
+
+?expr_or: [expr_or "or"] expr_and
+?expr_and: [expr_and "and"] expr_xor
+?expr_xor: [expr_xor "xor"] (expr_not|comp_expr)
+
+expr_not: "not" (expr_not|comp_expr)
+
+!?comp_expr: add_expr [("<"|"<="|">"|">="|"=="|"!=") add_expr]
+!?add_expr: [add_expr ("+"|"-")] mul_expr
+!?mul_expr: [mul_expr ("*"|"/"|"%")] factor
+!?factor: ["+"|"-"] pow_expr
+!?pow_expr: value ["**" factor]
+
+?value: atom
+      | value "(" arguments ")" -> value_call
+      | "[" expr "for" NAME "in" value "]" -> array_comprehension
+      | "(" expr ")"
+      | value "[" arguments "]" -> index
+
+atom: INT -> int
+    | FLOAT -> float
+    | NAME -> variable
+
+
+action_body: (action_statement _NEWLINE)+
+
+action_statement: value_statement
+                | NAME "(" arguments ")" -> action_call
+                
+
+_NEWLINE: /\n[ \t\f]*/
+
+NAME: /(?<=\W)[A-Za-z_][A-Za-z_0-9]*(?=\W)/
+
+INT: /[0-9]+([eE]\+?[0-9]+)?/
+FLOAT: /[0-9]+\.[0-9]*([eE][+\-]?[0-9]+)?/
+
+WS: /[ \t\f]+/
+
+%ignore WS
+
+%declare _INDENT _DEDENT
