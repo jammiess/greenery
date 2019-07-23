@@ -32,7 +32,6 @@ class SimpleParser(Generic[T], ABC):
             result = self.start()
         except nomatch:
             raise NoMatch(self.data, max(self._expected), self._expected[max(self._expected)]) from None
-        print(self.index)
         if self.index < len(self.data):
             raise NoMatch(self.data, max(self._expected), self._expected[max(self._expected)])
         return result

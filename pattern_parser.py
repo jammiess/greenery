@@ -1,7 +1,8 @@
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
+from itertools import combinations
 from textwrap import indent
-from typing import Iterable, FrozenSet, Optional, Tuple, List, Union
+from typing import Iterable, FrozenSet, Optional, Tuple, List, Union, Any
 
 from greenery.fsm import fsm, anything_else, epsilon, null
 from simple_parser import SimpleParser, nomatch
@@ -9,10 +10,10 @@ from simple_parser import SimpleParser, nomatch
 
 @dataclass(frozen=True)
 class _BasePattern(ABC):
-    __slots__ = '_alphabet_cache', '_prefix_cache'
+    __slots__ = '_alphabet_cache', '_prefix_cache', '_lengths_cache'
 
     @abstractmethod
-    def to_fsm(self, alphabet=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
         raise NotImplementedError
 
     @abstractmethod
@@ -26,14 +27,27 @@ class _BasePattern(ABC):
         return self._alphabet_cache
 
     @abstractmethod
-    def _get_prefix(self) -> int:
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
         raise NotImplementedError
 
     @property
-    def prefix(self) -> int:
+    def prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        """Returns the number of dots that have to be pre-/postfixed to support look(aheads|backs)"""
         if not hasattr(self, '_prefix_cache'):
-            super(_BasePattern, self).__setattr__('_prefix_cache', frozenset(self._get_prefix()))
+            super(_BasePattern, self).__setattr__('_prefix_cache', self._get_prefix_postfix())
         return self._prefix_cache
+
+    @abstractmethod
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        raise NotImplementedError
+
+    @property
+    def lengths(self) -> Tuple[int, Optional[int]]:
+        """Returns the minimum and maximum length that this pattern can match
+         (maximum can be None bei infinite length)"""
+        if not hasattr(self, '_lengths_cache'):
+            super(_BasePattern, self).__setattr__('_lengths_cache', self._get_lengths())
+        return self._lengths_cache
 
 
 class _Repeatable(_BasePattern, ABC):
@@ -42,6 +56,8 @@ class _Repeatable(_BasePattern, ABC):
 
 @dataclass(frozen=True)
 class _CharGroup(_Repeatable):
+    """Represents the smallest possible pattern that can be matched: A single char.
+    Direct port from the lego module"""
     chars: FrozenSet[str]
     negated: bool
     __slots__ = 'chars', 'negated'
@@ -50,12 +66,19 @@ class _CharGroup(_Repeatable):
         yield from self.chars
         yield anything_else
 
-    def _get_prefix(self) -> int:
-        return 0
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        return 0, 0
 
-    def to_fsm(self, alphabet=None) -> fsm:
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        return 1, 1
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
+        if prefix_postfix is None:
+            prefix_postfix = self.prefix_postfix
+        if prefix_postfix != (0, 0):
+            raise ValueError("Can not have prefix/postfix on CharGroup-level")
 
         # 0 is initial, 1 is final
 
@@ -82,6 +105,8 @@ class _CharGroup(_Repeatable):
 
 @dataclass(frozen=True)
 class _CompositeCharGroup(_Repeatable):
+    """Represents the smallest possible pattern that can be matched: A single char.
+    Is a combination of different CharGroups to make life easier"""
     groups: Tuple[_CharGroup, ...]
     negate: bool
 
@@ -90,12 +115,20 @@ class _CompositeCharGroup(_Repeatable):
             yield from g.alphabet
         yield anything_else
 
-    def _get_prefix(self) -> int:
-        return 0
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        return 0, 0
 
-    def to_fsm(self, alphabet=None) -> fsm:
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        return 1, 1
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
+        if prefix_postfix is None:
+            prefix_postfix = self.prefix_postfix
+        if prefix_postfix != (0, 0):
+            raise ValueError("Can not have prefix/postfix on CharGroup-level")
+
         base = fsm.union(*(g.to_fsm(alphabet) for g in self.groups))
         if self.negate:
             return _ALL.to_fsm(alphabet).different(base)
@@ -125,6 +158,8 @@ _CHAR_GROUPS = {
 
 @dataclass(frozen=True)
 class _Repeated(_BasePattern):
+    """Represents a repeated pattern. `base` can be matched from `min` to `max` times. 
+    `max` may be None to signal infinite"""
     base: _Repeatable
     min: int
     max: Optional[int]
@@ -136,12 +171,21 @@ class _Repeated(_BasePattern):
     def _get_alphabet(self) -> Iterable:
         return self.base.alphabet
 
-    def _get_prefix(self) -> int:
-        return self.base.prefix
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        return self.base.prefix_postfix
 
-    def to_fsm(self, alphabet=None) -> fsm:
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        l, h = self.base.lengths
+        return l * self.min, (h * self.max if None not in (h, self.max) else None)
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
+        if prefix_postfix is None:
+            prefix_postfix = self.prefix_postfix
+        if prefix_postfix != (0, 0):
+            raise ValueError("Can not have prefix/postfix on CharGroup-level")
+
         unit = self.base.to_fsm(alphabet)
         mandatory = unit * self.min
         if self.max is None:
@@ -157,6 +201,8 @@ _ALL_STAR = _Repeated(_ALL, 0, None)
 
 @dataclass(frozen=True)
 class _NonCapturing:
+    """Represents a lookahead/lookback. Matches `inner` without 'consuming' anything. Can be negated.
+    Only valid inside a `_Concatenation`"""
     inner: _BasePattern
     backwards: bool
     negate: bool
@@ -166,12 +212,10 @@ class _NonCapturing:
     def alphabet(self):
         return self.inner.alphabet
 
-    def get_size(self):
-        raise NotImplementedError
-
 
 @dataclass(frozen=True)
 class _Concatenation(_BasePattern):
+    """Represents multiple Patterns that have to be match in a row. Can contain `_NonCapturing`"""
     parts: Tuple[Union[_BasePattern, _NonCapturing], ...]
     __slots__ = 'parts',
 
@@ -183,29 +227,75 @@ class _Concatenation(_BasePattern):
             yield from p.alphabet
         yield anything_else
 
-    def _get_prefix(self) -> int:
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        pre = 0  # What is the longest a lookback could stick out over the beginning?
+        off = 0  # How many chars have been consumed, e.g what is the minimum length?
         for p in self.parts:
-            raise NotImplementedError
+            if not isinstance(p, _NonCapturing):
+                off += p.lengths[0]
+            elif p.backwards:
+                a, b = p.inner.lengths
+                if a != b:
+                    print(p.inner)
+                    raise ValueError(f"lookbacks have to have fixed length {(a, b)}")
+                req = a - off
+                if req > pre:
+                    pre = req
+        post = 0
+        off = 0
+        for p in reversed(self.parts):
+            if not isinstance(p, _NonCapturing):
+                off += p.lengths[0]
+            elif not p.backwards:
+                a, b = p.inner.lengths
+                if b is None:
+                    req = a - off  # TODO: is this correct?
+                else:
+                    req = b - off
+                if req > post:
+                    post = req
+        return pre, post
 
-    def to_fsm(self, alphabet=None) -> fsm:
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        l, h = 0, 0
+        for p in self.parts:
+            if not isinstance(p, _NonCapturing):
+                pl, ph = p.lengths
+                l += pl
+                h = h + ph if None not in (h, ph) else None
+        return l, h
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
+        if prefix_postfix is None:
+            prefix_postfix = self.prefix_postfix
+
+        all = _ALL.to_fsm(alphabet)
+        all_star = _ALL_STAR.to_fsm(alphabet)
         fsm_parts = []
         empty = epsilon(alphabet)
         current = empty
+        current += all.times(prefix_postfix[0])
         for part in self.parts:
             if isinstance(part, _NonCapturing):
-                inner = part.inner.to_fsm(alphabet)
+                inner = part.inner.to_fsm(alphabet, (0, 0))
                 if part.backwards:
-                    raise NotImplementedError
+                    raise NotImplementedError("lookbacks are not implemented")
                 else:
+                    try:
+                        inner.cardinality()
+                    except OverflowError:
+                        raise NotImplementedError("Can not deal with infinite length lookaheads")
                     fsm_parts.append((None, current))
                     fsm_parts.append((part, inner))
+                    current = empty
             else:
-                current += part.to_fsm(alphabet)
+                current += part.to_fsm(alphabet, (0, 0))
+        current += all.times(prefix_postfix[1])
         result = current
-        all_star = _ALL_STAR.to_fsm(alphabet)
-        for m, f in fsm_parts:
+        for m, f in reversed(fsm_parts):
+            print(result)
             if m is None:
                 result = f + result
             else:
@@ -229,15 +319,34 @@ class Pattern(_Repeatable):
             yield from o.alphabet
         yield anything_else
 
-    def _get_prefix(self) -> int:
-        raise NotImplementedError
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        l, h = None, 0
+        for o in self.options:
+            ol, oh = o.lengths
+            if l is None or ol < l:
+                l = ol
+            if oh is None or (h is not None and oh > h):
+                h = oh
+        return l, h
 
-    def to_fsm(self, alphabet=None) -> fsm:
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        pre, post = 0, 0
+        for o in self.options:
+            opre, opost = o.prefix_postfix
+            if opre > pre:
+                pre = opre
+            if opost is None or (post is not None and opost > post):
+                post = opost
+        return pre, post
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
-        result = self.options[0].to_fsm(alphabet)
+        if prefix_postfix is None:
+            prefix_postfix = self.prefix_postfix
+        result = self.options[0].to_fsm(alphabet, prefix_postfix)
         for o in self.options[1:]:
-            result |= o
+            result |= o.to_fsm(alphabet, prefix_postfix)
         return result
 
 
@@ -461,3 +570,15 @@ class _ParsePattern(SimpleParser[Pattern]):
 def parse_pattern(pattern: str) -> Pattern:
     p = _ParsePattern(pattern)
     return p.parse()
+
+
+def compare_patterns(*patterns: Pattern) -> Iterable[Tuple[Pattern, Pattern]]:
+    alphabet = frozenset(c for p in patterns for c in p.alphabet)
+    prefix_postfix_s = [p.prefix_postfix for p in patterns]
+    prefix_postfix = max(p[0] for p in prefix_postfix_s), max(p[1] for p in prefix_postfix_s)
+    all_star = _ALL_STAR.to_fsm(alphabet)
+    fsms = [(p, p.to_fsm(alphabet, prefix_postfix)) for p in patterns]
+    for (ka, fa), (kb, fb) in combinations(fsms, 2):
+        fa: fsm
+        if not fa.isdisjoint(fb):
+            yield (ka, kb)

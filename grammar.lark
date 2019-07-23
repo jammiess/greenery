@@ -60,7 +60,7 @@ action_statement: value_statement
 
 _NEWLINE: /\n[ \t\f]*/
 
-NAME: /(?<=\W)[A-Za-z_][A-Za-z_0-9]*(?=\W)/
+NAME: /[A-Za-z_][A-Za-z_0-9]*(?=\W)/
 
 INT: /[0-9]+([eE]\+?[0-9]+)?/
 FLOAT: /[0-9]+\.[0-9]*([eE][+\-]?[0-9]+)?/
