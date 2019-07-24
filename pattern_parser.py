@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
+from enum import Flag, auto
 from itertools import combinations
 from textwrap import indent
 from typing import Iterable, FrozenSet, Optional, Tuple, List, Union, Any
@@ -8,12 +11,39 @@ from greenery.fsm import fsm, anything_else, epsilon, null
 from simple_parser import SimpleParser, nomatch
 
 
+class _REFlags(Flag):
+    CASE_INSENSITIVE = I = auto()
+    SINGLE_LINE = S = auto()
+    MULTILINE = M = auto()
+
+
+_flags = {
+    'i': _REFlags.I,
+    's': _REFlags.S,
+    'm': _REFlags.M,
+}
+
+
+def _get_flags(plus: str) -> _REFlags:
+    res = _REFlags(0)
+    for c in plus:
+        res |= _flags[c]
+    return res
+
+
+def _combine_flags(base: _REFlags, added: _REFlags, removed: _REFlags):
+    base |= added
+    base &= ~removed
+    # TODO: Check for incorrect combinations (aLu)
+    return base
+
+
 @dataclass(frozen=True)
 class _BasePattern(ABC):
     __slots__ = '_alphabet_cache', '_prefix_cache', '_lengths_cache'
 
     @abstractmethod
-    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
         raise NotImplementedError
 
     @abstractmethod
@@ -72,13 +102,15 @@ class _CharGroup(_Repeatable):
     def _get_lengths(self) -> Tuple[int, Optional[int]]:
         return 1, 1
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
             prefix_postfix = self.prefix_postfix
         if prefix_postfix != (0, 0):
             raise ValueError("Can not have prefix/postfix on CharGroup-level")
+        if flags is not None:
+            raise NotImplementedError(flags)
 
         # 0 is initial, 1 is final
 
@@ -121,7 +153,7 @@ class _CompositeCharGroup(_Repeatable):
     def _get_lengths(self) -> Tuple[int, Optional[int]]:
         return 1, 1
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -129,14 +161,64 @@ class _CompositeCharGroup(_Repeatable):
         if prefix_postfix != (0, 0):
             raise ValueError("Can not have prefix/postfix on CharGroup-level")
 
-        base = fsm.union(*(g.to_fsm(alphabet) for g in self.groups))
+        base = fsm.union(*(g.to_fsm(alphabet, flags=flags) for g in self.groups))
         if self.negate:
             return _ALL.to_fsm(alphabet).different(base)
         else:
             return base
 
 
-_EMPTY = _CharGroup(frozenset(""), False)
+@dataclass(frozen=True)
+class __DotCls(_BasePattern):
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+        if alphabet is None:
+            alphabet = self.alphabet
+        if flags is None or not flags & _REFlags.SINGLE_LINE:
+            chars = alphabet - {'\n'}
+        else:
+            chars = alphabet
+        return fsm(
+            alphabet=alphabet,
+            states={0, 1},
+            initial=0,
+            finals={1},
+            map={0: {symbol: 1 for symbol in chars}},
+        )
+
+    def _get_alphabet(self) -> Iterable:
+        yield '\n'
+        yield anything_else
+
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        return 0, 0
+
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        return 1, 1
+
+
+@dataclass(frozen=True)
+class __EmptyCls(_BasePattern):
+
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+        if alphabet is None:
+            alphabet = self.alphabet
+        return epsilon(alphabet)
+
+    def _get_alphabet(self) -> Iterable:
+        yield '\n'
+        yield anything_else
+
+    def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
+        return 0, 0
+
+    def _get_lengths(self) -> Tuple[int, Optional[int]]:
+        return 1, 1
+
+
+_DOT = __DotCls()
+_EMPTY = __EmptyCls()
+_NONE = _CharGroup(frozenset(""), False)
 _ALL = _CharGroup(frozenset(""), True)
 _CHAR_GROUPS = {
     'w': _CharGroup(frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"), False),
@@ -178,7 +260,7 @@ class _Repeated(_BasePattern):
         l, h = self.base.lengths
         return l * self.min, (h * self.max if None not in (h, self.max) else None)
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -265,7 +347,7 @@ class _Concatenation(_BasePattern):
                 h = h + ph if None not in (h, ph) else None
         return l, h
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -279,7 +361,7 @@ class _Concatenation(_BasePattern):
         current += all.times(prefix_postfix[0])
         for part in self.parts:
             if isinstance(part, _NonCapturing):
-                inner = part.inner.to_fsm(alphabet, (0, 0))
+                inner = part.inner.to_fsm(alphabet, (0, 0), flags)
                 if part.backwards:
                     raise NotImplementedError("lookbacks are not implemented")
                 else:
@@ -291,7 +373,7 @@ class _Concatenation(_BasePattern):
                     fsm_parts.append((part, inner))
                     current = empty
             else:
-                current += part.to_fsm(alphabet, (0, 0))
+                current += part.to_fsm(alphabet, (0, 0),flags)
         current += all.times(prefix_postfix[1])
         result = current
         for m, f in reversed(fsm_parts):
@@ -310,6 +392,8 @@ class _Concatenation(_BasePattern):
 @dataclass(frozen=True)
 class Pattern(_Repeatable):
     options: Tuple[_BasePattern, ...]
+    added_flags: _REFlags = _REFlags(0)
+    removed_flags: _REFlags = _REFlags(0)
 
     def __str__(self):
         return "Pattern:\n" + "\n".join(indent(str(o), '  ') for o in self.options)
@@ -339,15 +423,21 @@ class Pattern(_Repeatable):
                 post = opost
         return pre, post
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
             prefix_postfix = self.prefix_postfix
-        result = self.options[0].to_fsm(alphabet, prefix_postfix)
+        if flags is None:
+            flags = _REFlags(0)
+        flags = _combine_flags(flags, self.added_flags, self.removed_flags)
+        result = self.options[0].to_fsm(alphabet, prefix_postfix, flags)
         for o in self.options[1:]:
-            result |= o.to_fsm(alphabet, prefix_postfix)
+            result |= o.to_fsm(alphabet, prefix_postfix, flags)
         return result
+
+    def with_flags(self, added: _REFlags, removed: _REFlags = _REFlags(0)) -> Pattern:
+        return self.__class__(self.options, added, removed)
 
 
 class _ParsePattern(SimpleParser[Pattern]):
@@ -361,8 +451,16 @@ class _ParsePattern(SimpleParser[Pattern]):
         'u', 'U', 'A', 'Z', 'b', 'B'
     })
 
+    def __init__(self, data: str):
+        super(_ParsePattern, self).__init__(data)
+        self.flags = None
+
     def start(self):
-        return self.pattern()
+        self.flags = None
+        p = self.pattern()
+        if self.flags is not None:
+            p = p.with_flags(self.flags)
+        return p
 
     def pattern(self):
         options = [self.conc()]
@@ -394,8 +492,24 @@ class _ParsePattern(SimpleParser[Pattern]):
 
     def extension_group(self):
         c = self.any()
-        if c in 'aiLmsux':
-            raise NotImplementedError("Flags are not implmented")
+        if c in 'aiLmsux-':
+            self.index -= 1
+            added_flags = self.multiple('aiLmsux', 0, None)
+            if self.static_b('-'):
+                removed_flags = self.multiple('aiLmsux', 1, None)
+            else:
+                removed_flags = ''
+            if self.static_b(':'):
+                p = self.pattern()
+                p = p.with_flags(_get_flags(added_flags), _get_flags(removed_flags))
+                self.static(")")
+                return self.repetition(p)
+            elif removed_flags != '':
+                raise nomatch
+            else:
+                self.static(')')
+                self.flags = _get_flags(added_flags)
+                return _EMPTY
         elif c == ':':
             p = self.pattern()
             self.static(")")
@@ -441,7 +555,7 @@ class _ParsePattern(SimpleParser[Pattern]):
         elif self.static_b("\\"):
             return self.repetition(self.escaped())
         elif self.static_b("."):
-            return self.repetition(_ALL)
+            return self.repetition(_DOT)
         else:
             c = self.any_but(*self.SPECIAL_CHARS_STANDARD)
             return self.repetition(_CharGroup(frozenset({c}), False))

@@ -2,7 +2,7 @@ from lark import Lark
 
 from pattern_parser import parse_pattern, compare_patterns
 
-grammar = Lark(open("grammar.lark"))
+grammar = Lark(open("grammar.lark"),parser='lalr',start='file_input')
 regexps = [(term, parse_pattern(term.pattern.to_regexp())) for term in grammar._build_lexer().terminals]
 print("parsed")
 for t, p in regexps:
