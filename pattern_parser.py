@@ -93,7 +93,8 @@ class _CharGroup(_Repeatable):
     __slots__ = 'chars', 'negated'
 
     def _get_alphabet(self, alphabet=None) -> Iterable:
-        yield from self.chars
+        yield from (c.lower() for c in self.chars)
+        yield from (c.upper() for c in self.chars)
         yield anything_else
 
     def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
@@ -109,21 +110,30 @@ class _CharGroup(_Repeatable):
             prefix_postfix = self.prefix_postfix
         if prefix_postfix != (0, 0):
             raise ValueError("Can not have prefix/postfix on CharGroup-level")
+        insensitive = False
         if flags is not None:
-            raise NotImplementedError(flags)
+            insensitive = flags & _REFlags.CASE_INSENSITIVE
+            flags &= ~_REFlags.CASE_INSENSITIVE
+            flags &= ~_REFlags.SINGLE_LINE
+            if flags:
+                raise NotImplementedError(flags)
+        if insensitive:
+            chars = frozenset({*(c.lower() for c in self.chars), *(c.upper() for c in self.chars)})
+        else:
+            chars = self.chars
 
         # 0 is initial, 1 is final
 
         # If negated, make a singular FSM accepting any other characters
         if self.negated:
             mapping = {
-                0: dict([(symbol, 1) for symbol in alphabet - self.chars]),
+                0: dict([(symbol, 1) for symbol in alphabet - chars]),
             }
 
         # If normal, make a singular FSM accepting only these characters
         else:
             mapping = {
-                0: dict([(symbol, 1) for symbol in self.chars]),
+                0: dict([(symbol, 1) for symbol in chars]),
             }
 
         return fsm(
@@ -163,7 +173,7 @@ class _CompositeCharGroup(_Repeatable):
 
         base = fsm.union(*(g.to_fsm(alphabet, flags=flags) for g in self.groups))
         if self.negate:
-            return _ALL.to_fsm(alphabet).different(base)
+            return _ALL.to_fsm(alphabet).difference(base)
         else:
             return base
 
@@ -318,7 +328,6 @@ class _Concatenation(_BasePattern):
             elif p.backwards:
                 a, b = p.inner.lengths
                 if a != b:
-                    print(p.inner)
                     raise ValueError(f"lookbacks have to have fixed length {(a, b)}")
                 req = a - off
                 if req > pre:
@@ -373,11 +382,10 @@ class _Concatenation(_BasePattern):
                     fsm_parts.append((part, inner))
                     current = empty
             else:
-                current += part.to_fsm(alphabet, (0, 0),flags)
+                current += part.to_fsm(alphabet, (0, 0), flags)
         current += all.times(prefix_postfix[1])
         result = current
         for m, f in reversed(fsm_parts):
-            print(result)
             if m is None:
                 result = f + result
             else:
@@ -445,7 +453,7 @@ class _ParsePattern(SimpleParser[Pattern]):
         '+', '?', '*', '.', '$', '^', '\\', '(', ')', '[', ']', '{', '}'
     })
     SPECIAL_CHARS_INNER: FrozenSet[str] = frozenset({
-        '\\', '[', ']', '-'
+        '\\', '[', ']'
     })
     RESERVED_ESCAPES: FrozenSet[str] = frozenset({
         'u', 'U', 'A', 'Z', 'b', 'B'
