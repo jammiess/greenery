@@ -4,6 +4,8 @@
 	Finite state machine library.
 '''
 
+AUTO_REDUCE = False
+
 
 class anything_else_cls:
     '''
@@ -117,6 +119,12 @@ class fsm:
         '''
         return self.accepts(string)
 
+    def _reduce(self):
+        if AUTO_REDUCE:
+            return self.reduce()
+        else:
+            return self
+
     def reduce(self):
         '''
             A result by Brzozowski (1963) shows that a minimal finite state machine
@@ -226,7 +234,7 @@ class fsm:
                 raise OblivionError
             return frozenset(next)
 
-        return crawl(alphabet, initial, final, follow).reduce()
+        return crawl(alphabet, initial, final, follow)._reduce()
 
     def __add__(self, other):
         '''
@@ -305,7 +313,7 @@ class fsm:
                 raise OblivionError
             return frozenset(next)
 
-        return crawl(alphabet, initial, final, follow).reduce()
+        return crawl(alphabet, initial, final, follow)._reduce()
 
     def __mul__(self, multiplier):
         '''
@@ -386,7 +394,7 @@ class fsm:
         def final(state):
             return not (0 in state and state[0] in self.finals)
 
-        return crawl(alphabet, initial, final, follow).reduce()
+        return crawl(alphabet, initial, final, follow)._reduce()
 
     def reversed(self):
         '''
@@ -760,7 +768,7 @@ def parallel(fsms, test):
         accepts = [i in state and state[i] in fsm.finals for (i, fsm) in enumerate(fsms)]
         return test(accepts)
 
-    return crawl(alphabet, initial, final, follow).reduce()
+    return crawl(alphabet, initial, final, follow)._reduce()
 
 
 def crawl(alphabet, initial, final, follow):
@@ -774,6 +782,7 @@ def crawl(alphabet, initial, final, follow):
     states = [initial]
     finals = set()
     map = {}
+    sorted_alphabet = sorted(alphabet, key=key)
 
     # iterate over a growing list
     i = 0
@@ -786,7 +795,7 @@ def crawl(alphabet, initial, final, follow):
 
         # compute map for this state
         map[i] = {}
-        for symbol in sorted(alphabet, key=key):
+        for symbol in sorted_alphabet:
             try:
                 next = follow(state, symbol)
 
