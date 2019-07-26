@@ -1,6 +1,6 @@
 import sys
 from greenery.lego import lego, parse
-from greenery.fsm import fsm
+from greenery.fsm import FSM
 
 regexes = list(sys.argv[1:])
 
@@ -21,7 +21,7 @@ if len(regexes) < 2:
 else:
     regexes = [parse(regex) for regex in regexes]
     fsms = [regex.to_fsm() for regex in regexes]
-    print(f"Have Intersection: {not fsm.intersection(*fsms).empty()}")
+    print(f"Have Intersection: {not FSM.intersection(*fsms).empty()}")
     print("Intersection:  %s" % (lego.intersection(*regexes).reduce()))
     print("Union:         %s" % (lego.union(*regexes).reduce()))
     print("Concatenation: %s" % (lego.concatenate(*regexes).reduce()))

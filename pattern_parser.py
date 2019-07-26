@@ -7,7 +7,7 @@ from itertools import combinations
 from textwrap import indent
 from typing import Iterable, FrozenSet, Optional, Tuple, List, Union, Any
 
-from greenery.fsm import fsm, anything_else, epsilon, null
+from greenery.fsm import FSM, anything_else, epsilon, null
 from simple_parser import SimpleParser, nomatch
 
 
@@ -43,7 +43,7 @@ class _BasePattern(ABC):
     __slots__ = '_alphabet_cache', '_prefix_cache', '_lengths_cache'
 
     @abstractmethod
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         raise NotImplementedError
 
     @abstractmethod
@@ -103,7 +103,7 @@ class _CharGroup(_Repeatable):
     def _get_lengths(self) -> Tuple[int, Optional[int]]:
         return 1, 1
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -136,7 +136,7 @@ class _CharGroup(_Repeatable):
                 0: dict([(symbol, 1) for symbol in chars]),
             }
 
-        return fsm(
+        return FSM(
             alphabet=alphabet,
             states={0, 1},
             initial=0,
@@ -163,7 +163,7 @@ class _CompositeCharGroup(_Repeatable):
     def _get_lengths(self) -> Tuple[int, Optional[int]]:
         return 1, 1
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -171,7 +171,7 @@ class _CompositeCharGroup(_Repeatable):
         if prefix_postfix != (0, 0):
             raise ValueError("Can not have prefix/postfix on CharGroup-level")
 
-        base = fsm.union(*(g.to_fsm(alphabet, flags=flags) for g in self.groups))
+        base = FSM.union(*(g.to_fsm(alphabet, flags=flags) for g in self.groups))
         if self.negate:
             return _ALL.to_fsm(alphabet).difference(base)
         else:
@@ -179,16 +179,16 @@ class _CompositeCharGroup(_Repeatable):
 
 
 @dataclass(frozen=True)
-class __DotCls(_BasePattern):
+class __DotCls(_Repeatable):
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         if flags is None or not flags & _REFlags.SINGLE_LINE:
             chars = alphabet - {'\n'}
         else:
             chars = alphabet
-        return fsm(
+        return FSM(
             alphabet=alphabet,
             states={0, 1},
             initial=0,
@@ -210,20 +210,19 @@ class __DotCls(_BasePattern):
 @dataclass(frozen=True)
 class __EmptyCls(_BasePattern):
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         return epsilon(alphabet)
 
     def _get_alphabet(self) -> Iterable:
-        yield '\n'
         yield anything_else
 
     def _get_prefix_postfix(self) -> Tuple[int, Optional[int]]:
         return 0, 0
 
     def _get_lengths(self) -> Tuple[int, Optional[int]]:
-        return 1, 1
+        return 0, 0
 
 
 _DOT = __DotCls()
@@ -270,7 +269,7 @@ class _Repeated(_BasePattern):
         l, h = self.base.lengths
         return l * self.min, (h * self.max if None not in (h, self.max) else None)
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -283,7 +282,8 @@ class _Repeated(_BasePattern):
         if self.max is None:
             optional = unit.star()
         else:
-            optional = epsilon(alphabet) | unit
+            optional = unit.copy()
+            optional.finals.add(optional.initial)
             optional *= (self.max - self.min)
         return mandatory + optional
 
@@ -356,7 +356,7 @@ class _Concatenation(_BasePattern):
                 h = h + ph if None not in (h, ph) else None
         return l, h
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -366,8 +366,7 @@ class _Concatenation(_BasePattern):
         all_star = _ALL_STAR.to_fsm(alphabet)
         fsm_parts = []
         empty = epsilon(alphabet)
-        current = empty
-        current += all.times(prefix_postfix[0])
+        current = [all.times(prefix_postfix[0])]
         for part in self.parts:
             if isinstance(part, _NonCapturing):
                 inner = part.inner.to_fsm(alphabet, (0, 0), flags)
@@ -380,14 +379,14 @@ class _Concatenation(_BasePattern):
                         raise NotImplementedError("Can not deal with infinite length lookaheads")
                     fsm_parts.append((None, current))
                     fsm_parts.append((part, inner))
-                    current = empty
+                    current = []
             else:
-                current += part.to_fsm(alphabet, (0, 0), flags)
-        current += all.times(prefix_postfix[1])
-        result = current
+                current.append(part.to_fsm(alphabet, (0, 0), flags))
+        current.append(all.times(prefix_postfix[1]))
+        result = FSM.concatenate(*current)
         for m, f in reversed(fsm_parts):
             if m is None:
-                result = f + result
+                result = FSM.concatenate(*f) + result
             else:
                 assert isinstance(m, _NonCapturing) and not m.backwards
                 if m.negate:
@@ -431,7 +430,7 @@ class Pattern(_Repeatable):
                 post = opost
         return pre, post
 
-    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> fsm:
+    def to_fsm(self, alphabet=None, prefix_postfix=None, flags=None) -> FSM:
         if alphabet is None:
             alphabet = self.alphabet
         if prefix_postfix is None:
@@ -439,10 +438,7 @@ class Pattern(_Repeatable):
         if flags is None:
             flags = _REFlags(0)
         flags = _combine_flags(flags, self.added_flags, self.removed_flags)
-        result = self.options[0].to_fsm(alphabet, prefix_postfix, flags)
-        for o in self.options[1:]:
-            result |= o.to_fsm(alphabet, prefix_postfix, flags)
-        return result
+        return FSM.union(*(o.to_fsm(alphabet, prefix_postfix, flags) for o in self.options))
 
     def with_flags(self, added: _REFlags, removed: _REFlags = _REFlags(0)) -> Pattern:
         return self.__class__(self.options, added, removed)
@@ -450,7 +446,7 @@ class Pattern(_Repeatable):
 
 class _ParsePattern(SimpleParser[Pattern]):
     SPECIAL_CHARS_STANDARD: FrozenSet[str] = frozenset({
-        '+', '?', '*', '.', '$', '^', '\\', '(', ')', '[', ']', '{', '}'
+        '+', '?', '*', '.', '$', '^', '\\', '(', ')', '[', ']', '{', '}', '|'
     })
     SPECIAL_CHARS_INNER: FrozenSet[str] = frozenset({
         '\\', '[', ']'
@@ -701,6 +697,6 @@ def compare_patterns(*patterns: Pattern) -> Iterable[Tuple[Pattern, Pattern]]:
     all_star = _ALL_STAR.to_fsm(alphabet)
     fsms = [(p, p.to_fsm(alphabet, prefix_postfix)) for p in patterns]
     for (ka, fa), (kb, fb) in combinations(fsms, 2):
-        fa: fsm
+        fa: FSM
         if not fa.isdisjoint(fb):
             yield (ka, kb)

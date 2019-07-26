@@ -59,7 +59,7 @@ def call_fsm(method):
         on them instead, then converts the result back to a regular expression.
         We do this for several of the more annoying operations.
     '''
-    fsm_method = getattr(fsm.fsm, method.__name__)
+    fsm_method = getattr(fsm.FSM, method.__name__)
 
     def new_method(*legos):
         alphabet = set().union(*[lego.alphabet() for lego in legos])
@@ -636,7 +636,7 @@ class charclass(lego):
                 0: dict([(symbol, 1) for symbol in self.chars]),
             }
 
-        return fsm.fsm(
+        return fsm.FSM(
             alphabet=alphabet,
             states={0, 1},
             initial=0,

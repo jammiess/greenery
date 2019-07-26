@@ -567,7 +567,7 @@ def test_dot():
 
 def test_abstar():
 	# Buggggs.
-	abstar = fsm.fsm(
+	abstar = fsm.FSM(
 		alphabet = {'a', fsm.anything_else, 'b'},
 		states   = {0, 1},
 		initial  = 0,
@@ -580,7 +580,7 @@ def test_abstar():
 	assert str(from_fsm(abstar)) == "[ab]*"
 
 def test_adotb():
-	adotb = fsm.fsm(
+	adotb = fsm.FSM(
 		alphabet = {'a', fsm.anything_else, 'b'},
 		states   = {0, 1, 2, 3, 4},
 		initial  = 0,
@@ -597,7 +597,7 @@ def test_adotb():
 
 def test_lego_recursion_error():
 	# Catch a recursion error
-	assert str(from_fsm(fsm.fsm(
+	assert str(from_fsm(fsm.FSM(
 		alphabet = {"0", "1"},
 		states   = {0, 1, 2, 3},
 		initial  = 3,
@@ -614,7 +614,7 @@ def test_even_star_bug():
 	# Bug fix. This is a(a{2})* (i.e. accepts an odd number of "a" chars in a
 	# row), but when from_fsm() is called, the result is "a+". Turned out to be
 	# a fault in the lego.multiplier.__mul__() routine
-	elesscomplex = fsm.fsm(
+	elesscomplex = fsm.FSM(
 		alphabet = {"a"},
 		states = {0, 1},
 		initial = 0,
@@ -645,7 +645,7 @@ def test_binary_3():
 	# Binary numbers divisible by 3.
 	# Disallows the empty string
 	# Allows "0" on its own, but not leading zeroes.
-	div3 = from_fsm(fsm.fsm(
+	div3 = from_fsm(fsm.FSM(
 		alphabet = {"0", "1"},
 		states = {"initial", "zero", 0, 1, 2, None},
 		initial = "initial",
@@ -674,7 +674,7 @@ def test_base_N():
 	base = 2
 	N = 3
 	assert base <= 10
-	divN = from_fsm(fsm.fsm(
+	divN = from_fsm(fsm.FSM(
 		alphabet = set(str(i) for i in range(base)),
 		states = set(range(N)) | {"initial", "zero", None},
 		initial = "initial",
@@ -703,7 +703,7 @@ def test_bad_alphabet():
 	# convert it to a `lego` object then the only acceptable symbols are single
 	# characters or `fsm.anything_else`.
 	for bad_symbol in [None, (), 0, ("a",), "", "aa", "ab", True]:
-		f = fsm.fsm(
+		f = fsm.FSM(
 			alphabet = {bad_symbol},
 			states = {0},
 			initial = 0,
@@ -721,7 +721,7 @@ def test_bad_alphabet():
 			pass
 
 def test_dead_default():
-	blockquote = from_fsm(fsm.fsm(
+	blockquote = from_fsm(fsm.FSM(
 		alphabet = {"/", "*", fsm.anything_else},
 		states = {0, 1, 2, 3, 4},
 		initial = 0,

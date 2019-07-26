@@ -4,11 +4,11 @@ if __name__ == "__main__":
 	raise Exception("Test files can't be run directly. Use `python -m pytest greenery`")
 
 import pytest
-from greenery.fsm import fsm, null, epsilon, anything_else
+from greenery.fsm import FSM, null, epsilon, anything_else
 
 def test_addbug():
 	# Odd bug with fsm.__add__(), exposed by "[bc]*c"
-	int5A = fsm(
+	int5A = FSM(
 		alphabet = {"a", "b", "c", anything_else},
 		states   = {0, 1},
 		initial  = 1,
@@ -20,7 +20,7 @@ def test_addbug():
 	)
 	assert int5A.accepts("")
 
-	int5B = fsm(
+	int5B = FSM(
 		alphabet = {"a", "b", "c", anything_else},
 		states   = {0, 1, 2},
 		initial  = 1,
@@ -44,7 +44,7 @@ def test_builtins():
 
 @pytest.fixture
 def a():
-	a = fsm(
+	a = FSM(
 		alphabet = {"a", "b"},
 		states   = {0, 1, "ob"},
 		initial  = 0,
@@ -64,7 +64,7 @@ def test_a(a):
 
 @pytest.fixture
 def b():
-	b = fsm(
+	b = FSM(
 		alphabet = {"a", "b"},
 		states   = {0, 1, "ob"},
 		initial  = 0,
@@ -195,7 +195,7 @@ def test_crawl_reduction():
 	# states 1 and 2&3 also behave identically, so they, too should be resolved
 	# (this is impossible to spot before 2 and 3 have been combined).
 	# Finally, the oblivion state should be omitted.
-	merged = fsm(
+	merged = FSM(
 		alphabet = {"0", "1"},
 		states   = {1, 2, 3, 4, "oblivion"},
 		initial  = 1,
@@ -212,7 +212,7 @@ def test_crawl_reduction():
 
 def test_bug_28():
 	# This is (ab*)* and it caused some defects.
-	abstar = fsm(
+	abstar = FSM(
 		alphabet = {'a', 'b'},
 		states   = {0, 1},
 		initial  = 0,
@@ -235,7 +235,7 @@ def test_bug_28():
 def test_star_advanced():
 	# This is (a*ba)*. Naively connecting the final states to the initial state
 	# gives the incorrect result here.
-	starred = fsm(
+	starred = FSM(
 		alphabet = {"a", "b"},
 		states   = {0, 1, 2, "oblivion"},
 		initial  = 0,
@@ -260,7 +260,7 @@ def test_star_advanced():
 
 def test_reduce():
 	# FSM accepts no strings but has 3 states, needs only 1
-	asdf = fsm(
+	asdf = FSM(
 		alphabet = {None},
 		states   = {0, 1, 2},
 		initial  = 0,
@@ -275,7 +275,7 @@ def test_reduce():
 	assert len(asdf.states) == 1
 
 def test_reverse_abc():
-	abc = fsm(
+	abc = FSM(
 		alphabet = {"a", "b", "c"},
 		states   = {0, 1, 2, 3, None},
 		initial  = 0,
@@ -293,7 +293,7 @@ def test_reverse_abc():
 
 def test_reverse_brzozowski():
 	# This is (a|b)*a(a|b)
-	brzozowski = fsm(
+	brzozowski = FSM(
 		alphabet = {"a", "b"},
 		states = {"A", "B", "C", "D", "E"},
 		initial = "A",
@@ -350,7 +350,7 @@ def test_binary_3():
 	# Binary numbers divisible by 3.
 	# Disallows the empty string
 	# Allows "0" on its own, but not leading zeroes.
-	div3 = fsm(
+	div3 = FSM(
 		alphabet = {"0", "1"},
 		states = {"initial", "zero", 0, 1, 2, None},
 		initial = "initial",
@@ -393,7 +393,7 @@ def test_binary_3():
 def test_invalid_fsms():
 	# initial state 1 is not a state
 	try:
-		fsm(
+		FSM(
 			alphabet = {},
 			states = {},
 			initial = 1,
@@ -408,7 +408,7 @@ def test_invalid_fsms():
 
 	# final state 2 not a state
 	try:
-		fsm(
+		FSM(
 			alphabet = {},
 			states = {1},
 			initial = 1,
@@ -423,7 +423,7 @@ def test_invalid_fsms():
 
 	# invalid transition for state 1, symbol "a"
 	try:
-		fsm(
+		FSM(
 			alphabet = {"a"},
 			states = {1},
 			initial = 1,
@@ -448,7 +448,7 @@ def test_bad_multiplier(a):
 		pass
 
 def test_anything_else_acceptance():
-	a = fsm(
+	a = FSM(
 		alphabet = {"a", "b", "c", anything_else},
 		states = {1},
 		initial = 1,
@@ -460,7 +460,7 @@ def test_anything_else_acceptance():
 	assert a.accepts("d")
 
 def test_difference(a, b):
-	aorb = fsm(
+	aorb = FSM(
 		alphabet = {"a", "b"},
 		states = {0, 1, None},
 		initial = 0,
@@ -481,7 +481,7 @@ def test_empty(a, b):
 	assert not a.empty()
 	assert not b.empty()
 
-	assert fsm(
+	assert FSM(
 		alphabet = {},
 		states = {0, 1},
 		initial = 0,
@@ -489,7 +489,7 @@ def test_empty(a, b):
 		map = {0:{}, 1:{}},
 	).empty()
 
-	assert not fsm(
+	assert not FSM(
 		alphabet = {},
 		states = {0},
 		initial = 0,
@@ -497,7 +497,7 @@ def test_empty(a, b):
 		map = {0:{}},
 	).empty()
 
-	assert fsm(
+	assert FSM(
 		alphabet = {"a", "b"},
 		states = {0, 1, None, 2},
 		initial = 0,
@@ -518,7 +518,7 @@ def test_dead_default():
 		You may now omit a transition, or even an entire state, from the map. This
 		affects every usage of `fsm.map`.
 	'''
-	blockquote = fsm(
+	blockquote = FSM(
 		alphabet = {"/", "*", anything_else},
 		states = {0, 1, 2, 3, 4, 5},
 		initial = 0,
@@ -548,7 +548,7 @@ def test_dead_default():
 def test_alphabet_unions():
 	# Thanks to sparse maps it should now be possible to compute the union of FSMs
 	# with disagreeing alphabets!
-	a = fsm(
+	a = FSM(
 		alphabet = {"a"},
 		states   = {0, 1},
 		initial  = 0,
@@ -558,7 +558,7 @@ def test_alphabet_unions():
 		},
 	)
 
-	b = fsm(
+	b = FSM(
 		alphabet = {"b"},
 		states   = {0, 1},
 		initial  = 0,
@@ -605,9 +605,9 @@ def test_new_set_methods(a, b):
 	assert [s for s in four] == [["a", "a"], ["a", "b"], ["b", "a"], ["b", "b"]]
 
 	# set.union() imitation
-	assert fsm.union(a, b) == a.union(b)
-	assert len(fsm.union()) == 0
-	assert fsm.intersection(a, b) == a.intersection(b)
+	assert FSM.union(a, b) == a.union(b)
+	assert len(FSM.union()) == 0
+	assert FSM.intersection(a, b) == a.intersection(b)
 
 	# This takes a little explaining. In general, `a & b & c` is equivalent to
 	# `EVERYTHING & a & b & c` where `EVERYTHING` is an FSM accepting every
@@ -616,13 +616,13 @@ def test_new_set_methods(a, b):
 	# However, since we compute the union of alphabets, and there are no
 	# alphabets, the union is the empty set. So the only string which `EVERYTHING`
 	# actually recognises is the empty string, [] (or "" if you prefer).
-	int_none = fsm.intersection()
+	int_none = FSM.intersection()
 	assert len(int_none) == 1
 	assert [] in int_none
 
-	assert (a | b).difference(a) == fsm.difference((a | b), a) == (a | b) - a == b
-	assert (a | b).difference(a, b) == fsm.difference((a | b), a, b) == (a | b) - a - b == null("ab")
-	assert a.symmetric_difference(b) == fsm.symmetric_difference(a, b) == a ^ b
+	assert (a | b).difference(a) == FSM.difference((a | b), a) == (a | b) - a == b
+	assert (a | b).difference(a, b) == FSM.difference((a | b), a, b) == (a | b) - a - b == null("ab")
+	assert a.symmetric_difference(b) == FSM.symmetric_difference(a, b) == a ^ b
 	assert a.isdisjoint(b)
 	assert a <= (a | b)
 	assert a < (a | b)
@@ -632,14 +632,14 @@ def test_new_set_methods(a, b):
 
 	assert list(a.concatenate(a, a).strings()) == [["a", "a", "a"]]
 	assert list(a.concatenate().strings()) == [["a"]]
-	assert list(fsm.concatenate(b, a, b).strings()) == [["b", "a", "b"]]
-	assert list(fsm.concatenate().strings()) == []
+	assert list(FSM.concatenate(b, a, b).strings()) == [["b", "a", "b"]]
+	assert list(FSM.concatenate().strings()) == []
 	assert not a.copy() is a
 
 def test_oblivion_crawl(a):
 	# When crawling a new FSM, we should avoid generating an oblivion state.
 	# `abc` has no oblivion state... all the results should not as well!
-	abc = fsm(
+	abc = FSM(
 		alphabet = {"a", "b", "c"},
 		states = {0, 1, 2, 3},
 		initial = 0,
@@ -661,8 +661,8 @@ def test_oblivion_crawl(a):
 
 def test_concatenate_bug(a):
 	# This exposes a defect in fsm.concatenate.
-	assert fsm.concatenate(a, epsilon({"a"}), a).accepts("aa")
-	assert fsm.concatenate(a, epsilon({"a"}), epsilon({"a"}), a).accepts("aa")
+	assert FSM.concatenate(a, epsilon({"a"}), a).accepts("aa")
+	assert FSM.concatenate(a, epsilon({"a"}), epsilon({"a"}), a).accepts("aa")
 
 def test_derive(a, b):
 	# Just some basic tests because this is mainly a regex thing.
@@ -677,7 +677,7 @@ def test_derive(a, b):
 	assert (a.star() - epsilon({"a", "b"})).derive("a") == a.star()
 
 def test_bug_36():
-	etc1 = fsm(
+	etc1 = FSM(
 		alphabet = {anything_else},
 		states = {0},
 		initial = 0,
@@ -688,7 +688,7 @@ def test_bug_36():
 			}
 		}
 	)
-	etc2 = fsm(
+	etc2 = FSM(
 		alphabet = {'s', anything_else},
 		states = {0, 1},
 		initial = 0,

@@ -1,20 +1,12 @@
-from pattern_parser import parse_pattern
+from time import time
 
-pattern = parse_pattern("(?i)Ab(?-i:C)")
-print(pattern)
-print(pattern.lengths)
-print(pattern.prefix_postfix)
-fsm = pattern.to_fsm()
-print(fsm)
-print(fsm.accepts("\n\n"))
-print(fsm.accepts(" \n"))
-print(fsm.accepts("\n "))
-print(fsm.accepts("  "))
-print(fsm.accepts("abc"))
-print(fsm.accepts("abC"))
-print(fsm.accepts("AbC"))
-print(fsm.accepts("ABC"))
-print(fsm.accepts("129"))
-print(fsm.accepts("1294"))
-print(fsm.accepts("12d94"))
-print(fsm.accepts("124294"))
+from pattern_parser import parse_pattern
+from greenery import fsm
+
+p1 = parse_pattern("(?i)A(\w(?-i:C)|\W\$)")
+p2 = parse_pattern("(?i)Ab(?-i:C)")
+p3 = parse_pattern("(?i)Ab(?-i:C)")
+
+f1, f2, f3 = p1.to_fsm(), p1.to_fsm(), p1.to_fsm()
+print(f1.categories())
+
