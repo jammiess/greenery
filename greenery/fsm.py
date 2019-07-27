@@ -148,7 +148,8 @@ class FSM:
 
         # top row
         row = ["", "name", "final?"]
-        row.extend(str(symbol) for symbol in sorted(self.alphabet, key=key))
+        row.extend(str(symbol) if symbol not in ('\n','\t',' ','\r','\f') else repr(symbol)[1:-1] 
+                   for symbol in sorted(self.alphabet, key=key))
         rows.append(row)
 
         # other rows

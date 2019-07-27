@@ -277,7 +277,7 @@ class _Repeated(_BasePattern):
         if prefix_postfix != (0, 0):
             raise ValueError("Can not have prefix/postfix on CharGroup-level")
 
-        unit = self.base.to_fsm(alphabet)
+        unit = self.base.to_fsm(alphabet, (0, 0), flags=flags)
         mandatory = unit * self.min
         if self.max is None:
             optional = unit.star()
@@ -363,9 +363,8 @@ class _Concatenation(_BasePattern):
             prefix_postfix = self.prefix_postfix
 
         all = _ALL.to_fsm(alphabet)
-        all_star = _ALL_STAR.to_fsm(alphabet)
+        all_star = all.star()
         fsm_parts = []
-        empty = epsilon(alphabet)
         current = [all.times(prefix_postfix[0])]
         for part in self.parts:
             if isinstance(part, _NonCapturing):
@@ -373,10 +372,10 @@ class _Concatenation(_BasePattern):
                 if part.backwards:
                     raise NotImplementedError("lookbacks are not implemented")
                 else:
-                    try:
-                        inner.cardinality()
-                    except OverflowError:
-                        raise NotImplementedError("Can not deal with infinite length lookaheads")
+                    # try:
+                    #     inner.cardinality()
+                    # except OverflowError:
+                    #     raise NotImplementedError("Can not deal with infinite length lookaheads")
                     fsm_parts.append((None, current))
                     fsm_parts.append((part, inner))
                     current = []
@@ -386,7 +385,7 @@ class _Concatenation(_BasePattern):
         result = FSM.concatenate(*current)
         for m, f in reversed(fsm_parts):
             if m is None:
-                result = FSM.concatenate(*f) + result
+                result = FSM.concatenate(*f, result)
             else:
                 assert isinstance(m, _NonCapturing) and not m.backwards
                 if m.negate:
@@ -660,10 +659,12 @@ class _ParsePattern(SimpleParser[Pattern]):
             except nomatch:
                 break
         self.static("]")
-        if len(groups) > 1:
-            return _CompositeCharGroup(tuple(groups), negate)
-        else:
+        if len(groups) == 1:
             return tuple(groups)[0]
+        elif len(groups) == 0:
+            return _CharGroup(frozenset({}),negate)
+        else:
+            return _CompositeCharGroup(tuple(groups), negate)
 
     def chargroup_inner(self) -> _CharGroup:
         start = self.index
@@ -694,7 +695,6 @@ def compare_patterns(*patterns: Pattern) -> Iterable[Tuple[Pattern, Pattern]]:
     alphabet = frozenset(c for p in patterns for c in p.alphabet)
     prefix_postfix_s = [p.prefix_postfix for p in patterns]
     prefix_postfix = max(p[0] for p in prefix_postfix_s), max(p[1] for p in prefix_postfix_s)
-    all_star = _ALL_STAR.to_fsm(alphabet)
     fsms = [(p, p.to_fsm(alphabet, prefix_postfix)) for p in patterns]
     for (ka, fa), (kb, fb) in combinations(fsms, 2):
         fa: FSM
