@@ -63,10 +63,6 @@ class FSM:
     finals: Set[int]
     map: Dict[int, Dict[Any, int]]
 
-    def __setattr__(self, name, value):
-        """Immutability prevents some potential problems."""
-        raise Exception("This object is immutable.")
-
     def __init__(self, alphabet, states, initial, finals, map, *, __no_validation__=False):
         """
             `alphabet` is an iterable of symbols the FSM can be fed.
@@ -282,7 +278,10 @@ class FSM:
             return any(substate in self.finals for substate in state)
 
         base = crawl(alphabet, initial, final, follow)
-        base.finals.add(base.initial)
+        num_states = len(base.states)
+        base.map[num_states] = base.map[base.initial]
+        base.finals.add(num_states)
+        base.initial = num_states
         return base
 
     def times(self, multiplier):
